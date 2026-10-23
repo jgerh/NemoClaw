@@ -134,6 +134,52 @@ nemo-deepagents onboard --name <sandbox-name>
 
 </AgentOnly>
 
+<AgentOnly variant="openclaw">
+
+## Run an OpenClaw Task from a Shell Script
+
+With an existing `Ready` or `Running` OpenClaw sandbox using the managed stdin-capable parser, pipe or redirect a host file into `nemoclaw <name> agent` to run a task without an interactive terminal.
+The command sends the input through OpenShell to `openclaw agent` inside the sandbox; the input producer must finish and close standard input so OpenClaw can read through end of file.
+Use a target selector such as `--agent main`, and keep credentials out of the task file and captured logs unless your workflow explicitly permits them.
+For this example, put the task instructions in `task.txt` and ask the agent to reply with `TASK_COMPLETE` on its own line only after finishing the requested work.
+The following Bash script sends that host file and saves the reply and diagnostics in separate host files:
+
+```bash
+sandbox=my-assistant
+task_file=task.txt
+result_file=task-result.txt
+diagnostics_file=task-diagnostics.txt
+
+if nemoclaw "$sandbox" agent --agent main --timeout 120 < "$task_file" > "$result_file" 2> "$diagnostics_file"; then
+  if grep -Fxq 'TASK_COMPLETE' "$result_file"; then
+    printf 'Task reported completion; verify any requested changes.\n'
+  else
+    printf 'Reply did not contain the expected completion line; inspect results and diagnostics.\n' >&2
+    exit 1
+  fi
+else
+  printf 'Agent command failed; inspect results and diagnostics before retrying.\n' >&2
+  exit 1
+fi
+```
+
+Replace the completion-line check with a response or artifact check appropriate to your task; an exit status of zero or a completion line alone does not prove that requested changes occurred.
+Both redirected files are on the host: `task-result.txt` contains stdout, while `task-diagnostics.txt` contains stderr and wrapper diagnostics.
+Review their contents before sharing them because the task, reply, or diagnostics can contain sensitive data.
+
+Do not pass a host path to `--message-file`: OpenClaw resolves that path inside the sandbox, where it can also point to `/dev/stdin` or a link to standard input.
+Use a pipe or redirect for a host file instead; do not combine an explicit `-m` message with piped input, because the wrapper closes stdin when it recognizes `-m` or `--message`.
+A message file or inherited stdin must provide nonempty, valid UTF-8 input within the parser's 4,194,304-byte limit.
+
+Pass a positive whole-number `--timeout` in seconds to bound the managed stdin wait and the agent turn; without that override, the managed stdin reader waits up to 30 seconds for a pipe to close.
+NemoClaw starts the requested command deadline before best-effort recovery and forwards the remaining time to OpenClaw, with a separate host dispatch allowance.
+A provider request has its own `models.providers.<id>.timeoutSeconds` deadline; the agent `--timeout` flag does not override it.
+If the command times out or reports an incomplete turn, inspect the partial output and diagnostics, locate the session with `nemoclaw <name> sessions list`, and export its transcript with `nemoclaw <name> sessions export <key>`.
+Check any affected resources before retrying: a partial turn can already have applied tool side effects.
+For selectors, output modes, deadlines, and failure handling, refer to the [agent command reference](../../reference/commands#$$nemoclaw-name-agent).
+
+</AgentOnly>
+
 ## Stop and Start a Sandbox
 
 Stop a sandbox through OpenShell to free CPU, memory, and GPU resources without losing anything:
